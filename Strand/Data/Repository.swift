@@ -155,14 +155,22 @@ final class Repository: ObservableObject {
         return rows.sorted { $0.startTs > $1.startTs }
     }
 
-    /// Apple Health daily aggregates (steps/energy/vo2/hr).
-    func appleDailyRows(days: Int = 4000) async -> [AppleDaily] {
+    /// Apple Health / Google Health daily aggregates (steps/energy/vo2/hr/weight).
+    func appleDailyRows(source: String = "apple-health", days: Int = 4000) async -> [AppleDaily] {
         guard let store = await ensureStore() else { return [] }
         let now = Date()
         return (try? await store.appleDaily(
-            deviceId: "apple-health",
+            deviceId: source,
             from: Self.dayString(now.addingTimeInterval(-Double(days) * 86_400)),
             to: Self.dayString(now.addingTimeInterval(86_400)))) ?? []
+    }
+
+    /// Workouts for a single imported source ("apple-health" / "google-health"), newest first.
+    func sourceWorkouts(deviceId: String, days: Int = 4000) async -> [WorkoutRow] {
+        guard let store = await ensureStore() else { return [] }
+        let now = Int(Date().timeIntervalSince1970)
+        let rows = (try? await store.workouts(deviceId: deviceId, from: now - days * 86_400, to: now + 86_400, limit: 5000)) ?? []
+        return rows.sorted { $0.startTs > $1.startTs }
     }
 
     /// Shared formatter — created once. Hot read path (called per series window / refresh);

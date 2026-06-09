@@ -24,9 +24,21 @@ struct AppleHealthView: View {
     /// skipped (store-backed reads can't be seeded in a preview). Production leaves
     /// this nil and loads from the repository in `.task`.
     private let previewData: PreviewData?
+    /// Which imported source this page renders ("apple-health" or "google-health").
+    let source: String
+    /// Header title for the page.
+    let title: String
 
-    init() { self.previewData = nil }
-    fileprivate init(previewData: PreviewData) { self.previewData = previewData }
+    init(source: String = "apple-health", title: String = "Apple Health") {
+        self.source = source
+        self.title = title
+        self.previewData = nil
+    }
+    fileprivate init(previewData: PreviewData) {
+        self.source = "apple-health"
+        self.title = "Apple Health"
+        self.previewData = previewData
+    }
 
     // Loaded state.
     @State private var loaded = false
@@ -148,7 +160,7 @@ struct AppleHealthView: View {
     }
 
     var body: some View {
-        ScreenScaffold(title: "Apple Health", subtitle: "\(spanSubtitle)") {
+        ScreenScaffold(title: LocalizedStringKey(title), subtitle: "\(spanSubtitle)") {
             if loaded && !hasAnyData {
                 ComingSoon(what: "Nothing imported yet. On an iPhone: Health app, tap your photo, Export All Health Data, then import the .zip here in Data Sources.")
             } else if !loaded {
@@ -200,16 +212,16 @@ struct AppleHealthView: View {
             return
         }
 
-        async let rows = repo.appleDailyRows()
-        async let workouts = repo.workoutRows()
+        async let rows = repo.appleDailyRows(source: source)
+        async let workouts = repo.sourceWorkouts(deviceId: source)
 
         var fetched: [String: [(day: String, value: Double)]] = [:]
         for key in Self.seriesKeys {
-            fetched[key] = await repo.series(key: key, source: "apple-health")
+            fetched[key] = await repo.series(key: key, source: source)
         }
 
         let loadedRows = await rows
-        let appleWorkouts = await workouts.filter { $0.source == "apple_health" || $0.source == "apple-health" }
+        let appleWorkouts = await workouts
 
         await MainActor.run {
             appleRows = loadedRows.sorted { $0.day < $1.day }
