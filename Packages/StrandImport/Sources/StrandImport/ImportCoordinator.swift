@@ -67,6 +67,9 @@ public struct ImportCoordinator {
             return .appleHealth(try appleHealth.import(from: url))
         case .whoopExport:
             return .whoopExport(try whoop.import(from: url))
+        case .googleHealth:
+            // Google Health is fetched from the API (GoogleHealthImporter), not a file.
+            throw ImportError.notAZipOrFolder(url.path)
         }
     }
 

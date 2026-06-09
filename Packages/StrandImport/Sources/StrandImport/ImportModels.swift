@@ -7,6 +7,7 @@ import Foundation
 public enum DataSourceKind: String, Sendable, Codable, Equatable, CaseIterable {
     case appleHealth
     case whoopExport
+    case googleHealth
 }
 
 // MARK: - Generic health sample (Apple Health Record sink)
