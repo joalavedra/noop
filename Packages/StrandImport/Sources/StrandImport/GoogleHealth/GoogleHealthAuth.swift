@@ -59,19 +59,28 @@ public struct GoogleHealthAuth: Sendable {
     }
 
     /// The Google consent URL for a given PKCE challenge. Exposed for testing.
+    ///
+    /// Each value is fully percent-encoded (RFC 3986 unreserved set only) so the
+    /// `redirect_uri` arrives as `http%3A%2F%2Flocalhost%3A8080` rather than with a
+    /// literal `://` — `URLComponents` leaves those unescaped, which some OAuth
+    /// front ends reject.
     func consentURL(challenge: String) -> URL {
-        var comps = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
-        comps.queryItems = [
-            .init(name: "client_id", value: clientId),
-            .init(name: "redirect_uri", value: "http://localhost:\(port)"),
-            .init(name: "response_type", value: "code"),
-            .init(name: "scope", value: Self.scopes),
-            .init(name: "access_type", value: "offline"),
-            .init(name: "prompt", value: "consent"),
-            .init(name: "code_challenge", value: challenge),
-            .init(name: "code_challenge_method", value: "S256"),
+        let params = [
+            ("client_id", clientId),
+            ("redirect_uri", "http://localhost:\(port)"),
+            ("response_type", "code"),
+            ("scope", Self.scopes),
+            ("access_type", "offline"),
+            ("prompt", "consent"),
+            ("code_challenge", challenge),
+            ("code_challenge_method", "S256"),
         ]
-        return comps.url!
+        let unreserved = CharacterSet(charactersIn:
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        let query = params
+            .map { "\($0.0)=\($0.1.addingPercentEncoding(withAllowedCharacters: unreserved) ?? $0.1)" }
+            .joined(separator: "&")
+        return URL(string: "https://accounts.google.com/o/oauth2/v2/auth?" + query)!
     }
 
     /// Run the full interactive flow and return tokens.
@@ -79,6 +88,7 @@ public struct GoogleHealthAuth: Sendable {
         #if os(macOS)
         let (verifier, challenge) = Self.pkce()
         let url = consentURL(challenge: challenge)
+        FileHandle.standardError.write(Data("[GoogleHealthAuth] opening consent URL: \(url.absoluteString)\n".utf8))
         let code = try await withLoopbackListener {
             NSWorkspace.shared.open(url)
         }
