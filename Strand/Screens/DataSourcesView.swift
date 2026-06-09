@@ -8,12 +8,15 @@ struct DataSourcesView: View {
     @EnvironmentObject var live: LiveState
     @State private var showingImporter = false
     @State private var importTarget: ImportTarget = .whoop
+    @State private var googleClientId = GoogleHealthKeychain.clientId ?? ""
+    @State private var googleClientSecret = GoogleHealthKeychain.clientSecret ?? ""
 
     var body: some View {
         ScreenScaffold(title: "Data Sources",
                        subtitle: "Everything stays on this Mac. Bring your history in once, then it's yours.") {
             whoopCard
             appleHealthCard
+            googleHealthCard
             liveCard
         }
         // A single target-aware importer avoids SwiftUI collapsing competing importers on the same screen.
@@ -63,6 +66,36 @@ struct DataSourcesView: View {
                 if importingAppleHealth { ProgressView().controlSize(.small) }
             }
             if let s = model.appleHealthImportSummary {
+                Text(s).font(StrandFont.subhead).foregroundStyle(StrandPalette.statusPositive)
+            }
+        }
+    }
+
+    private var googleHealthCard: some View {
+        card(title: "Google Health (Fitbit)", icon: "figure.run",
+             subtitle: "Connect a Google account to pull Fitbit / Pixel Watch data — heart rate, HRV, resting HR, sleep, SpO₂, respiratory rate — over the Google Health API. Sign in once in your browser; everything stays on this Mac. Needs a Google Cloud OAuth client ID + secret (Desktop type).") {
+            let connecting = model.isImporting(.googleHealth)
+            let hasToken = GoogleHealthKeychain.refreshToken != nil
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("OAuth client ID", text: $googleClientId)
+                    .textFieldStyle(.roundedBorder).disableAutocorrection(true)
+                    .textContentType(.none)
+                SecureField("OAuth client secret", text: $googleClientSecret)
+                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 12) {
+                    Button {
+                        model.connectGoogleHealth(clientId: googleClientId, clientSecret: googleClientSecret)
+                    } label: {
+                        Label(connecting ? "Connecting…" : (hasToken ? "Sync now" : "Connect Google Health"),
+                              systemImage: hasToken ? "arrow.clockwise" : "link")
+                            .padding(.horizontal, 6)
+                    }
+                    .buttonStyle(.borderedProminent).tint(StrandPalette.accent)
+                    .disabled(model.hasActiveImport || googleClientId.isEmpty || googleClientSecret.isEmpty)
+                    if connecting { ProgressView().controlSize(.small) }
+                }
+            }
+            if let s = model.googleHealthImportSummary {
                 Text(s).font(StrandFont.subhead).foregroundStyle(StrandPalette.statusPositive)
             }
         }

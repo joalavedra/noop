@@ -7,6 +7,7 @@ import WhoopStore
 enum DataSourceImportKind {
     case whoop
     case appleHealth
+    case googleHealth
 }
 
 /// Root app state: owns the live BLE connection state and the CoreBluetooth engine.
@@ -50,6 +51,8 @@ final class AppModel: ObservableObject {
     @Published var whoopImportSummary: String?
     /// Last Apple Health import result surfaced in the Apple Health card.
     @Published var appleHealthImportSummary: String?
+    /// Last Google Health connect/sync result surfaced in the Google Health card.
+    @Published var googleHealthImportSummary: String?
 
     /// True while any data-source import is writing to the local store.
     var hasActiveImport: Bool { activeImportSource != nil }
@@ -342,6 +345,27 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Connect (or re-sync) Google Health: one-time browser sign-in, then fetch the
+    /// last `days` of Fitbit / Pixel Watch data into the store under the
+    /// `google-health` source and refresh the dashboard.
+    func connectGoogleHealth(clientId: String, clientSecret: String, days: Int = 30) {
+        beginImport(.googleHealth)
+        Task {
+            do {
+                guard let store = await repo.storeHandle() else {
+                    finishImport(.googleHealth, summary: "Couldn't open the local store.")
+                    return
+                }
+                let summary = try await GoogleHealthImport.connect(
+                    clientId: clientId, clientSecret: clientSecret, days: days, into: store)
+                await repo.refresh()
+                finishImport(.googleHealth, summary: "Imported \(summary.recordCount) records")
+            } catch {
+                finishImport(.googleHealth, summary: "Connect failed: \(error)")
+            }
+        }
+    }
+
     /// Marks a source as importing and clears only that source's old status text.
     private func beginImport(_ source: DataSourceImportKind) {
         activeImportSource = source
@@ -350,6 +374,8 @@ final class AppModel: ObservableObject {
             whoopImportSummary = nil
         case .appleHealth:
             appleHealthImportSummary = nil
+        case .googleHealth:
+            googleHealthImportSummary = nil
         }
     }
 
@@ -360,6 +386,8 @@ final class AppModel: ObservableObject {
             whoopImportSummary = summary
         case .appleHealth:
             appleHealthImportSummary = summary
+        case .googleHealth:
+            googleHealthImportSummary = summary
         }
         activeImportSource = nil
     }

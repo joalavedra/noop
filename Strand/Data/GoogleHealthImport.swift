@@ -14,10 +14,20 @@ enum GoogleHealthImport {
 
     static let deviceId = "google-health"
 
-    /// Run the full sign-in → fetch → persist flow and return what was imported.
+    /// Resolve a refresh token (from the Keychain, or a one-time browser sign-in),
+    /// fetch `days` of history, and persist. Returns what was imported.
     @discardableResult
-    static func connect(clientId: String, clientSecret: String, refreshToken: String,
+    static func connect(clientId: String, clientSecret: String,
                         days: Int, into store: WhoopStore) async throws -> ImportSummary {
+        let refreshToken: String
+        if let saved = GoogleHealthKeychain.refreshToken {
+            refreshToken = saved
+        } else {
+            let tokens = try await GoogleHealthAuth(clientId: clientId, clientSecret: clientSecret).authorize()
+            refreshToken = tokens.refreshToken
+        }
+        GoogleHealthKeychain.store(clientId: clientId, clientSecret: clientSecret, refreshToken: refreshToken)
+
         let client = GoogleHealthClient(clientId: clientId, clientSecret: clientSecret, refreshToken: refreshToken)
         let result = try await GoogleHealthImporter(client: client).importRange(days: days)
         return try await persist(result, into: store)
