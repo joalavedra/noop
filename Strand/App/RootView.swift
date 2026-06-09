@@ -26,6 +26,11 @@ enum NavItem: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    /// Items shown in the sidebar. Live (BLE strap) and Stress (needs continuous
+    /// R-R intervals a strap provides) are hidden while NOOP runs on imported data;
+    /// the screens and the BLE engine remain in the codebase.
+    static var sidebarItems: [NavItem] { allCases.filter { $0 != .live && $0 != .stress } }
+
     /// Localized sidebar label. Each case maps to a string literal so Xcode extracts
     /// it into the String Catalog as an English (US) base entry.
     var titleKey: LocalizedStringKey {
@@ -91,15 +96,12 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
-                List(NavItem.allCases, selection: $selection) { item in
+                List(NavItem.sidebarItems, selection: $selection) { item in
                     Label(item.titleKey, systemImage: item.icon)
                         .font(.system(size: 13, weight: .medium))
                         .tag(item)
                 }
                 .listStyle(.sidebar)
-
-                Divider().overlay(StrandPalette.hairline)
-                SidebarStatus().padding(.horizontal, 14).padding(.vertical, 12)
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
             .safeAreaInset(edge: .top) { brand }
@@ -145,39 +147,5 @@ struct RootView: View {
         case .settings: SettingsView()
         case .support: SupportView()
         }
-    }
-}
-
-/// Isolated live-status pill — owns the LiveState observation so the rest of RootView (sidebar
-/// list + detail) does not re-render on the ~1 Hz HR / frame stream.
-private struct SidebarStatus: View {
-    @EnvironmentObject var live: LiveState
-    var body: some View {
-        HStack(spacing: 9) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 9, height: 9)
-                .shadow(color: statusColor.opacity(0.6), radius: live.connected ? 4 : 0)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(statusText)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(StrandPalette.textPrimary)
-                Text(live.batteryPct.map { "Battery \(Int($0))%" } ?? "Strap not connected")
-                    .font(.system(size: 11))
-                    .foregroundStyle(StrandPalette.textTertiary)
-            }
-            Spacer()
-        }
-        .padding(10)
-        .background(StrandPalette.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private var statusColor: Color {
-        live.bonded ? StrandPalette.statusPositive
-            : live.connected ? StrandPalette.statusWarning
-            : StrandPalette.statusCritical
-    }
-    private var statusText: String {
-        live.bonded ? "WHOOP · Bonded" : live.connected ? "Connecting…" : "Disconnected"
     }
 }

@@ -16,9 +16,10 @@ enum GoogleHealthImport {
 
     /// Resolve a refresh token (from the Keychain, or a one-time browser sign-in),
     /// fetch `days` of history, and persist. Returns what was imported.
+    /// `maxHR` / `sex` come from the user profile and drive the strain estimate.
     @discardableResult
-    static func connect(clientId: String, clientSecret: String,
-                        days: Int, into store: WhoopStore) async throws -> ImportSummary {
+    static func connect(clientId: String, clientSecret: String, days: Int,
+                        maxHR: Double?, sex: String, into store: WhoopStore) async throws -> ImportSummary {
         let refreshToken: String
         if let saved = GoogleHealthKeychain.refreshToken {
             refreshToken = saved
@@ -30,12 +31,13 @@ enum GoogleHealthImport {
 
         let client = GoogleHealthClient(clientId: clientId, clientSecret: clientSecret, refreshToken: refreshToken)
         let result = try await GoogleHealthImporter(client: client).importRange(days: days)
-        return try await persist(result, into: store)
+        return try await persist(result, maxHR: maxHR, sex: sex, into: store)
     }
 
-    /// Persist an already-fetched result.
+    /// Persist an already-fetched result, scoring recovery + strain.
     @discardableResult
-    static func persist(_ result: AppleHealthImportResult, into store: WhoopStore) async throws -> ImportSummary {
+    static func persist(_ result: AppleHealthImportResult, maxHR: Double?, sex: String,
+                        into store: WhoopStore) async throws -> ImportSummary {
         let daily = AppleHealthAggregator.aggregate(result)
 
         let appleRows = daily.map { d in
@@ -49,15 +51,7 @@ enum GoogleHealthImport {
         }
         try await store.upsertAppleDaily(appleRows, deviceId: deviceId)
 
-        let dm = daily.map { d in
-            DailyMetric(day: d.day,
-                        totalSleepMin: d.asleepMin, efficiency: nil,
-                        deepMin: d.deepMin, remMin: d.remMin, lightMin: d.coreMin,
-                        disturbances: nil,
-                        restingHr: d.restingHr.map { Int($0.rounded()) },
-                        avgHrv: d.hrvSDNN, recovery: nil, strain: nil, exerciseCount: nil,
-                        spo2Pct: d.spo2Pct, skinTempDevC: nil, respRateBpm: d.respRate)
-        }
+        let dm = GoogleIntelligence.dailyMetrics(from: result, aggregates: daily, maxHR: maxHR, sex: sex)
         try await store.upsertDailyMetrics(dm, deviceId: deviceId)
 
         let points = AppleHealthAggregator.metricPoints(daily)

@@ -8,10 +8,13 @@ import WhoopProtocol
 @MainActor
 final class Repository: ObservableObject {
     let deviceId: String
-    /// Source id for on-device computed scores (recovery/strain/sleep derived from the raw strap
-    /// streams by IntelligenceEngine). Merged UNDER the imported `deviceId` rows at read time, so a
-    /// real WHOOP import always wins and the strap-only user still gets a populated dashboard.
-    private var computedDeviceId: String { deviceId + "-noop" }
+    /// The source the dashboard reads. Resolves to whichever source actually has data —
+    /// WHOOP first (a real strap/import always wins), else Google Health, else Apple Health —
+    /// so an import-only user gets a fully populated dashboard without a strap.
+    @Published private(set) var activeSource: String
+    /// Source id for on-device computed scores (recovery/strain/sleep). Merged UNDER the
+    /// imported rows at read time so an explicit import always wins.
+    private var computedDeviceId: String { activeSource + "-noop" }
     private var store: WhoopStore?
 
     /// Daily metrics (recovery/strain/sleep/HRV/RHR…) over the recent window, oldest→newest.
@@ -20,7 +23,7 @@ final class Repository: ObservableObject {
     @Published var sleeps: [CachedSleepSession] = []
     @Published var loaded = false
 
-    init(deviceId: String) { self.deviceId = deviceId }
+    init(deviceId: String) { self.deviceId = deviceId; self.activeSource = deviceId }
 
     /// Today's row, by the device's ACTUAL local calendar date — NOT just the newest stored row, which
     /// after a historical import was months-old data shown as today's hero (issue #23). nil if no row
@@ -66,20 +69,35 @@ final class Repository: ObservableObject {
     /// on-device computed scores so a strap-only user still gets a populated dashboard.
     func refresh(days nDays: Int = 4000) async {
         guard let store = await ensureStore() else { return }
+        await resolvePrimarySource(store)
         let now = Date()
         let fromDay = Self.dayString(now.addingTimeInterval(-Double(nDays) * 86_400))
         let toDay = Self.dayString(now.addingTimeInterval(86_400))
         let nowTs = Int(now.timeIntervalSince1970)
         let lo = nowTs - nDays * 86_400, hi = nowTs + 86_400
 
-        let imported = (try? await store.dailyMetrics(deviceId: deviceId, from: fromDay, to: toDay)) ?? []
+        let imported = (try? await store.dailyMetrics(deviceId: activeSource, from: fromDay, to: toDay)) ?? []
         let computed = (try? await store.dailyMetrics(deviceId: computedDeviceId, from: fromDay, to: toDay)) ?? []
-        let impSleep = (try? await store.sleepSessions(deviceId: deviceId, from: lo, to: hi, limit: 4000)) ?? []
+        let impSleep = (try? await store.sleepSessions(deviceId: activeSource, from: lo, to: hi, limit: 4000)) ?? []
         let compSleep = (try? await store.sleepSessions(deviceId: computedDeviceId, from: lo, to: hi, limit: 4000)) ?? []
 
         self.days = Self.mergeDaily(imported: imported, computed: computed)
         self.sleeps = Self.mergeSleep(imported: impSleep, computed: compSleep)
         self.loaded = true
+    }
+
+    /// Pick the source the dashboard reads: WHOOP first (a real strap/import always wins),
+    /// then Google Health, then Apple Health. Falls back to the WHOOP id when nothing imported.
+    private func resolvePrimarySource(_ store: WhoopStore) async {
+        let now = Date()
+        let from = Self.dayString(now.addingTimeInterval(-4000 * 86_400))
+        let to = Self.dayString(now.addingTimeInterval(86_400))
+        for candidate in [deviceId, "google-health", "apple-health"] {
+            let rows = (try? await store.dailyMetrics(deviceId: candidate, from: from, to: to)) ?? []
+            let comp = (try? await store.dailyMetrics(deviceId: candidate + "-noop", from: from, to: to)) ?? []
+            if !rows.isEmpty || !comp.isEmpty { activeSource = candidate; return }
+        }
+        activeSource = deviceId
     }
 
     /// Imported daily rows win per day; computed rows fill the days the import doesn't cover.
@@ -105,17 +123,17 @@ final class Repository: ObservableObject {
 
     func dailyMetrics(fromDay: String, toDay: String) async -> [DailyMetric] {
         guard let store = await ensureStore() else { return [] }
-        return (try? await store.dailyMetrics(deviceId: deviceId, from: fromDay, to: toDay)) ?? []
+        return (try? await store.dailyMetrics(deviceId: activeSource, from: fromDay, to: toDay)) ?? []
     }
 
     func hrSamples(from: Int, to: Int, limit: Int = 8000) async -> [HRSample] {
         guard let store = await ensureStore() else { return [] }
-        return (try? await store.hrSamples(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
+        return (try? await store.hrSamples(deviceId: activeSource, from: from, to: to, limit: limit)) ?? []
     }
 
     func sleepSessions(from: Int, to: Int, limit: Int = 100) async -> [CachedSleepSession] {
         guard let store = await ensureStore() else { return [] }
-        return (try? await store.sleepSessions(deviceId: deviceId, from: from, to: to, limit: limit)) ?? []
+        return (try? await store.sleepSessions(deviceId: activeSource, from: from, to: to, limit: limit)) ?? []
     }
 
     // MARK: - Metric explorer reads (generic substrate)
@@ -140,7 +158,7 @@ final class Repository: ObservableObject {
         guard let store = await ensureStore() else { return [] }
         let now = Date()
         return (try? await store.journalEntries(
-            deviceId: deviceId,
+            deviceId: activeSource,
             from: Self.dayString(now.addingTimeInterval(-Double(days) * 86_400)),
             to: Self.dayString(now.addingTimeInterval(86_400)))) ?? []
     }
@@ -150,7 +168,7 @@ final class Repository: ObservableObject {
         guard let store = await ensureStore() else { return [] }
         let now = Int(Date().timeIntervalSince1970)
         let lo = now - days * 86_400, hi = now + 86_400
-        var rows = (try? await store.workouts(deviceId: deviceId, from: lo, to: hi, limit: 5000)) ?? []
+        var rows = (try? await store.workouts(deviceId: activeSource, from: lo, to: hi, limit: 5000)) ?? []
         rows += (try? await store.workouts(deviceId: "apple-health", from: lo, to: hi, limit: 5000)) ?? []
         return rows.sorted { $0.startTs > $1.startTs }
     }

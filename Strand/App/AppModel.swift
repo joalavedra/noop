@@ -357,7 +357,8 @@ final class AppModel: ObservableObject {
                     return
                 }
                 let summary = try await GoogleHealthImport.connect(
-                    clientId: clientId, clientSecret: clientSecret, days: days, into: store)
+                    clientId: clientId, clientSecret: clientSecret, days: days,
+                    maxHR: Double(profile.hrMax), sex: profile.sex, into: store)
                 await repo.refresh()
                 finishImport(.googleHealth, summary: "Imported \(summary.recordCount) records")
             } catch {
