@@ -63,6 +63,10 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.device.bluetooth: true
         com.apple.security.files.user-selected.read-write: true
+        # Outgoing requests to the Google Health API + OAuth, and the one-shot
+        # loopback listener that catches the Google sign-in redirect.
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.noopapp.noop
